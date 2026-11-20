@@ -46,3 +46,44 @@ def download(req: Req, x_token: str = Header(None)):
         raise HTTPException(400, r.stderr[-500:])
     return FileResponse(files[0], media_type="video/mp4", filename="video.mp4",
                         background=BackgroundTask(shutil.rmtree, tmp, True))
+
+
+import secrets, time, requests
+
+BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+STORE = "/data/videos"
+BASE_URL = os.environ.get("PUBLIC_BASE_URL", "https://dl.nahgil.fr")
+os.makedirs(STORE, exist_ok=True)
+
+class StoreReq(BaseModel):
+    file_path: str
+
+@app.post("/store")
+def store(req: StoreReq, x_token: str = Header(None)):
+    check(x_token)
+    if not BOT_TOKEN:
+        raise HTTPException(500, "bot token not set")
+    if ".." in req.file_path or not req.file_path.startswith(("videos/", "documents/")):
+        raise HTTPException(400, "bad file path")
+    now = time.time()
+    for f in glob.glob(f"{STORE}/*.mp4"):
+        if now - os.path.getmtime(f) > 14 * 86400:
+            os.remove(f)
+    name = secrets.token_urlsafe(16) + ".mp4"
+    r = requests.get(f"https://api.telegram.org/file/bot{BOT_TOKEN}/{req.file_path}",
+                     stream=True, timeout=120)
+    if r.status_code != 200:
+        raise HTTPException(400, "telegram download failed")
+    with open(f"{STORE}/{name}", "wb") as out:
+        for chunk in r.iter_content(1 << 20):
+            out.write(chunk)
+    return {"url": f"{BASE_URL}/v/{name}"}
+
+@app.get("/v/{name}")
+def serve(name: str):
+    if "/" in name or ".." in name:
+        raise HTTPException(404)
+    path = f"{STORE}/{name}"
+    if not os.path.exists(path):
+        raise HTTPException(404)
+    return FileResponse(path, media_type="video/mp4")
