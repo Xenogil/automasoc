@@ -79,7 +79,7 @@ def store(req: StoreReq, x_token: str = Header(None)):
             out.write(chunk)
     return {"url": f"{BASE_URL}/v/{name}"}
 
-@app.get("/v/{name}")
+@app.api_route("/v/{name}", methods=["GET", "HEAD"])
 def serve(name: str):
     if "/" in name or ".." in name:
         raise HTTPException(404)
